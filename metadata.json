@@ -1,0 +1,5 @@
+{
+  "name": "SEM Effects Visualizer",
+  "description": "Visualization of Structural Equation Modeling (SEM) standardized effects (Direct, Indirect, Total) for Cooling/Heating Patches and Nodes over time.",
+  "requestFramePermissions": []
+}
