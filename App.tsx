@@ -1,8 +1,8 @@
-import React, { useMemo, useRef, useState, useCallback } from 'react';
-import { BarChart3, FileText, Download, Settings2, Minus, Plus, Edit3, RefreshCcw } from 'lucide-react';
+import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
+import { BarChart3, FileText, Download, Settings2, Minus, Plus, Edit3, RefreshCcw, GripVertical } from 'lucide-react';
 import { toSvg } from 'html-to-image';
 import { RAW_SEM_DATA } from './constants';
-import SemChart, { BarConfig } from './components/SemChart';
+import SemChart from './components/SemChart';
 
 // Helper to extract initial values from constants
 const getInitialValue = (from: string, to: string, year: string) => {
@@ -29,12 +29,16 @@ const App: React.FC = () => {
   
   // -- STATE FOR VISUAL CONTROLS --
   const [xAxisFontSize, setXAxisFontSize] = useState(14);
-  const [yAxisFontSize, setYAxisFontSize] = useState(14);
+  const [yAxisFontSize, setYAxisFontSize] = useState(16);
   const [yAxisTitleFontSize, setYAxisTitleFontSize] = useState(16);
   const [descFontSize, setDescFontSize] = useState(16);
+  
+  // -- STATE FOR CONTAINER WIDTH --
+  const [containerWidth, setContainerWidth] = useState(900);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartRef = useRef<{ x: number; width: number } | null>(null);
 
   // -- STATE FOR DATA VALUES --
-  // Initialize state from the constants.ts file
   const [dataValues, setDataValues] = useState<AllPathsData>({
     CP_CN: {
       '2013': getInitialValue('CP', 'CN', '2013'),
@@ -60,6 +64,51 @@ const App: React.FC = () => {
 
   // -- REFS --
   const figureRef = useRef<HTMLDivElement>(null);
+
+  // -- RESIZE LOGIC --
+  const startResizing = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeStartRef.current = {
+      x: e.clientX,
+      width: containerWidth
+    };
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing || !resizeStartRef.current) return;
+      
+      const deltaX = e.clientX - resizeStartRef.current.x;
+      // Limit width between 600px and 1600px
+      const newWidth = Math.max(600, Math.min(1600, resizeStartRef.current.width + deltaX));
+      
+      setContainerWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      resizeStartRef.current = null;
+    };
+
+    if (isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'ew-resize';
+      document.body.style.userSelect = 'none'; // Prevent text selection while dragging
+    } else {
+      document.body.style.cursor = 'default';
+      document.body.style.userSelect = 'auto';
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'default';
+      document.body.style.userSelect = 'auto';
+    };
+  }, [isResizing]);
+
 
   // -- HANDLERS --
   const handleValueChange = (pathKey: keyof AllPathsData, year: keyof YearData, value: string) => {
@@ -100,7 +149,6 @@ const App: React.FC = () => {
     }
   };
 
-  // -- EXPORT FUNCTION --
   const handleExportSvg = useCallback(async () => {
     if (figureRef.current === null) {
       return;
@@ -109,43 +157,88 @@ const App: React.FC = () => {
     try {
       const dataUrl = await toSvg(figureRef.current, {
         backgroundColor: '#ffffff',
+        width: containerWidth, // Use the current custom width
         style: {
            fontFamily: '"Times New Roman", Times, serif'
         }
       });
       
       const link = document.createElement('a');
-      link.download = 'figure-1-sem-analysis-4-panels.svg';
+      link.download = 'figure-1-sem-horizontal-stacked.svg';
       link.href = dataUrl;
       link.click();
     } catch (err) {
       console.error('Error exporting SVG:', err);
       alert('Failed to export SVG. Please check console for details.');
     }
-  }, []);
+  }, [containerWidth]);
 
-  // -- DATA PREPARATION FOR CHARTS --
-
-  const getChartData = (pathKey: keyof AllPathsData, dataKey: string) => {
-    const years: (keyof YearData)[] = ['2013', '2018', '2023'];
-    return years.map(year => ({
-      year,
-      [dataKey]: dataValues[pathKey][year]
-    }));
+  // -- DATA PREPARATION --
+  const getYearData = (year: keyof YearData) => {
+    return [
+      { name: 'CP to CN', value: dataValues.CP_CN[year] },
+      { name: 'HP to CN', value: dataValues.HP_CN[year] },
+      { name: 'CP to HN', value: dataValues.CP_HN[year] },
+      { name: 'HP to HN', value: dataValues.HP_HN[year] },
+    ];
   };
 
-  const dataCpCn = useMemo(() => getChartData('CP_CN', 'CP'), [dataValues.CP_CN]);
-  const dataHpCn = useMemo(() => getChartData('HP_CN', 'HP'), [dataValues.HP_CN]);
-  const dataCpHn = useMemo(() => getChartData('CP_HN', 'CP'), [dataValues.CP_HN]);
-  const dataHpHn = useMemo(() => getChartData('HP_HN', 'HP'), [dataValues.HP_HN]);
+  const data2013 = useMemo(() => getYearData('2013'), [dataValues]);
+  const data2018 = useMemo(() => getYearData('2018'), [dataValues]);
+  const data2023 = useMemo(() => getYearData('2023'), [dataValues]);
+
+  // -- GLOBAL AXIS CALCULATION --
+  // Calculate global min/max across all years to ensure alignment
+  const axisConfig = useMemo(() => {
+    const allValues = [
+      ...Object.values(dataValues.CP_CN),
+      ...Object.values(dataValues.HP_CN),
+      ...Object.values(dataValues.CP_HN),
+      ...Object.values(dataValues.HP_HN),
+    ] as number[];
+
+    const dataMin = Math.min(...allValues);
+    const dataMax = Math.max(...allValues);
+
+    const step = 0.2;
+
+    // Snapping logic:
+    // If Max is 0.56, 0.56/0.2 = 2.8 -> ceil 3 -> 0.6. This removes unnecessary extra space (e.g. 0.8)
+    // If Min is -0.07, -0.07/0.2 = -0.35 -> floor -1 -> -0.2.
+    
+    let maxTick = Math.ceil(dataMax / step) * step;
+    let minTick = Math.floor(dataMin / step) * step;
+
+    // Float precision fix
+    maxTick = parseFloat(maxTick.toFixed(1));
+    minTick = parseFloat(minTick.toFixed(1));
+
+    // Ensure 0 is included
+    if (minTick > 0) minTick = 0;
+    if (maxTick < 0) maxTick = 0;
+
+    // Generate ticks
+    const ticks: number[] = [];
+    // Add small epsilon to loop condition to handle floating point discrepancies
+    for (let t = minTick; t <= maxTick + 0.05; t += step) {
+      ticks.push(parseFloat(t.toFixed(1)));
+    }
+
+    return {
+      domain: [minTick, maxTick] as [number, number],
+      ticks
+    };
+
+  }, [dataValues]);
+
 
   // -- TABLE DATA --
   const tableRows = useMemo(() => {
     return [
-      { path: 'CP → CN', key: 'CP_CN' as keyof AllPathsData },
-      { path: 'HP → CN', key: 'HP_CN' as keyof AllPathsData },
-      { path: 'CP → HN', key: 'CP_HN' as keyof AllPathsData },
-      { path: 'HP → HN', key: 'HP_HN' as keyof AllPathsData },
+      { path: 'CP to CN', key: 'CP_CN' as keyof AllPathsData },
+      { path: 'HP to CN', key: 'HP_CN' as keyof AllPathsData },
+      { path: 'CP to HN', key: 'CP_HN' as keyof AllPathsData },
+      { path: 'HP to HN', key: 'HP_HN' as keyof AllPathsData },
     ].map(item => ({
       path: item.path,
       '2013': dataValues[item.key]['2013'].toFixed(3),
@@ -153,21 +246,6 @@ const App: React.FC = () => {
       '2023': dataValues[item.key]['2023'].toFixed(3),
     }));
   }, [dataValues]);
-
-  // -- CONFIGURATION --
-  // Nature Publishing Group (NPG) inspired palette
-  const palette = {
-    npgBlue: '#4DBBD5',    // CP -> CN
-    npgGreen: '#00A087',   // HP -> CN
-    npgDarkBlue: '#3C5488',// CP -> HN
-    npgRed: '#E64B35',     // HP -> HN
-  };
-
-  // Distinct configurations for each chart
-  const barCpCn: BarConfig[] = [{ key: 'CP', name: 'CP Effect', color: palette.npgBlue }];
-  const barHpCn: BarConfig[] = [{ key: 'HP', name: 'HP Effect', color: palette.npgGreen }];
-  const barCpHn: BarConfig[] = [{ key: 'CP', name: 'CP Effect', color: palette.npgDarkBlue }];
-  const barHpHn: BarConfig[] = [{ key: 'HP', name: 'HP Effect', color: palette.npgRed }];
 
   // -- HELPER FOR CONTROLS --
   const ControlItem = ({ label, value, setter, min = 8, max = 32 }: any) => (
@@ -249,10 +327,40 @@ const App: React.FC = () => {
               <h3>Figure Styling (Times New Roman)</h3>
             </div>
             <div className="flex flex-wrap gap-x-6 gap-y-4">
-              <ControlItem label="X-Axis Font" value={xAxisFontSize} setter={setXAxisFontSize} />
-              <ControlItem label="Y-Axis Label" value={yAxisFontSize} setter={setYAxisFontSize} />
-              <ControlItem label="Y-Axis Title" value={yAxisTitleFontSize} setter={setYAxisTitleFontSize} />
+              <ControlItem label="X-Axis (Values)" value={xAxisFontSize} setter={setXAxisFontSize} />
+              <ControlItem label="Y-Axis (Labels)" value={yAxisFontSize} setter={setYAxisFontSize} />
               <ControlItem label="Description" value={descFontSize} setter={setDescFontSize} />
+
+              {/* Width Control Manual Input */}
+              <div className="flex flex-col gap-1 min-w-[140px]">
+                <span className="text-xs text-gray-500 font-medium">Figure Width (px)</span>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setContainerWidth(Math.max(600, containerWidth - 50))}
+                    className="p-1 rounded hover:bg-gray-100 text-gray-600"
+                  >
+                    <Minus size={14} />
+                  </button>
+                  <span className="text-sm font-mono w-12 text-center">{Math.round(containerWidth)}</span>
+                  <button 
+                    onClick={() => setContainerWidth(Math.min(1600, containerWidth + 50))}
+                    className="p-1 rounded hover:bg-gray-100 text-gray-600"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+              </div>
+
+            </div>
+            <div className="mt-4 flex items-center gap-4 text-xs">
+               <div className="flex items-center gap-2">
+                 <div className="w-4 h-4" style={{ backgroundColor: '#3C5488', border: '1px solid #2c3e50' }}></div>
+                 <span>Positive (#3C5488)</span>
+               </div>
+               <div className="flex items-center gap-2">
+                 <div className="w-4 h-4" style={{ backgroundColor: '#E64B35', border: '1px solid #c0392b' }}></div>
+                 <span>Negative (#E64B35)</span>
+               </div>
             </div>
           </div>
 
@@ -279,25 +387,25 @@ const App: React.FC = () => {
               <div className="font-semibold text-center text-gray-500">2023</div>
 
               {/* Row 1 */}
-              <div className="flex items-center font-bold text-slate-700">CP → CN</div>
+              <div className="flex items-center font-bold text-slate-700">CP to CN</div>
               <InputCell pathKey="CP_CN" year="2013" />
               <InputCell pathKey="CP_CN" year="2018" />
               <InputCell pathKey="CP_CN" year="2023" />
 
               {/* Row 2 */}
-              <div className="flex items-center font-bold text-slate-700">HP → CN</div>
+              <div className="flex items-center font-bold text-slate-700">HP to CN</div>
               <InputCell pathKey="HP_CN" year="2013" />
               <InputCell pathKey="HP_CN" year="2018" />
               <InputCell pathKey="HP_CN" year="2023" />
 
               {/* Row 3 */}
-              <div className="flex items-center font-bold text-slate-700">CP → HN</div>
+              <div className="flex items-center font-bold text-slate-700">CP to HN</div>
               <InputCell pathKey="CP_HN" year="2013" />
               <InputCell pathKey="CP_HN" year="2018" />
               <InputCell pathKey="CP_HN" year="2023" />
 
               {/* Row 4 */}
-              <div className="flex items-center font-bold text-slate-700">HP → HN</div>
+              <div className="flex items-center font-bold text-slate-700">HP to HN</div>
               <InputCell pathKey="HP_HN" year="2013" />
               <InputCell pathKey="HP_HN" year="2018" />
               <InputCell pathKey="HP_HN" year="2023" />
@@ -305,103 +413,109 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Figure 1 Container - EXPORT TARGET */}
-        <div 
-          ref={figureRef} 
-          className="bg-white p-8 rounded-xl shadow-sm border border-gray-200 mb-12"
-          style={{ fontFamily: '"Times New Roman", Times, serif' }}
-        >
-          {/* Header Section inside Figure */}
-          <div className="mb-8 border-b border-gray-100 pb-4">
-            <h2 className="text-2xl font-bold text-black mb-2">
-              Figure 1: Direct Effects by Path
-            </h2>
-            <p 
-              className="text-gray-700 leading-relaxed"
-              style={{ fontSize: `${descFontSize}px` }}
+        {/* Figure 1 Container - EXPORT TARGET + RESIZABLE */}
+        <div className="w-full overflow-auto pb-12 px-2">
+          
+          <div 
+             className="relative mx-auto transition-all duration-75"
+             style={{ width: containerWidth }}
+          >
+            {/* The Actual Figure Card */}
+            <div 
+              ref={figureRef} 
+              className="bg-white p-8 rounded-xl shadow-sm border border-gray-200"
+              style={{ fontFamily: '"Times New Roman", Times, serif', width: '100%' }}
             >
-              Standardized direct path coefficients from Cooling Patches (CP) and Heating Patches (HP) to network nodes.
-            </p>
-          </div>
-
-          {/* 2x2 Grid Layout for 4 Charts */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-12">
-            
-            {/* Chart 1: CP -> CN */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xl font-bold text-black">a</span>
-                <h3 className="text-lg font-bold text-black">
-                  CP → CN
-                </h3>
+              {/* Header Section inside Figure */}
+              <div className="mb-8 border-b border-gray-100 pb-4">
+                <h2 className="text-2xl font-bold text-black mb-2">
+                  Figure 1: Direct Effects by Year
+                </h2>
+                <p 
+                  className="text-gray-700 leading-relaxed"
+                  style={{ fontSize: `${descFontSize}px` }}
+                >
+                  Standardized direct path coefficients from Cooling Patches (CP) and Heating Patches (HP) to network nodes (CN, HN), grouped by year. Blue indicates positive effects; Red indicates negative effects.
+                </p>
               </div>
-              <div className="h-[300px] w-full bg-white border border-gray-100 rounded-lg p-2">
-                <SemChart 
-                  data={dataCpCn} 
-                  bars={barCpCn}
-                  xAxisFontSize={xAxisFontSize}
-                  yAxisFontSize={yAxisFontSize}
-                  yAxisTitleFontSize={yAxisTitleFontSize}
-                />
+
+              {/* Stacked Vertical Layout for 3 Horizontal Charts */}
+              <div className="flex flex-col gap-10">
+                
+                {/* Chart 1: 2013 */}
+                <div className="flex flex-col md:flex-row gap-4 h-[250px]">
+                  <div className="w-12 flex-shrink-0 pt-8">
+                    <span className="text-xl font-bold text-black">a</span>
+                  </div>
+                  <div className="flex-grow h-full">
+                    <h3 className="text-lg font-bold text-black mb-2 text-center">2013</h3>
+                    <SemChart 
+                      data={data2013} 
+                      xAxisFontSize={xAxisFontSize}
+                      yAxisFontSize={yAxisFontSize}
+                      yAxisTitleFontSize={yAxisTitleFontSize}
+                      domain={axisConfig.domain}
+                      ticks={axisConfig.ticks}
+                    />
+                  </div>
+                </div>
+
+                {/* Chart 2: 2018 */}
+                <div className="flex flex-col md:flex-row gap-4 h-[250px]">
+                  <div className="w-12 flex-shrink-0 pt-8">
+                    <span className="text-xl font-bold text-black">b</span>
+                  </div>
+                  <div className="flex-grow h-full">
+                    <h3 className="text-lg font-bold text-black mb-2 text-center">2018</h3>
+                    <SemChart 
+                      data={data2018} 
+                      xAxisFontSize={xAxisFontSize}
+                      yAxisFontSize={yAxisFontSize}
+                      yAxisTitleFontSize={yAxisTitleFontSize}
+                      domain={axisConfig.domain}
+                      ticks={axisConfig.ticks}
+                    />
+                  </div>
+                </div>
+
+                {/* Chart 3: 2023 */}
+                <div className="flex flex-col md:flex-row gap-4 h-[250px]">
+                  <div className="w-12 flex-shrink-0 pt-8">
+                    <span className="text-xl font-bold text-black">c</span>
+                  </div>
+                  <div className="flex-grow h-full">
+                    <h3 className="text-lg font-bold text-black mb-2 text-center">2023</h3>
+                    <SemChart 
+                      data={data2023} 
+                      xAxisFontSize={xAxisFontSize}
+                      yAxisFontSize={yAxisFontSize}
+                      yAxisTitleFontSize={yAxisTitleFontSize}
+                      domain={axisConfig.domain}
+                      ticks={axisConfig.ticks}
+                    />
+                  </div>
+                </div>
+
               </div>
             </div>
 
-            {/* Chart 2: HP -> CN */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xl font-bold text-black">b</span>
-                <h3 className="text-lg font-bold text-black">
-                  HP → CN
-                </h3>
-              </div>
-              <div className="h-[300px] w-full bg-white border border-gray-100 rounded-lg p-2">
-                <SemChart 
-                  data={dataHpCn} 
-                  bars={barHpCn} 
-                  xAxisFontSize={xAxisFontSize}
-                  yAxisFontSize={yAxisFontSize}
-                  yAxisTitleFontSize={yAxisTitleFontSize}
-                />
+            {/* Visual Drag Handle on the Right */}
+            <div 
+              className="absolute top-0 right-[-24px] bottom-0 w-6 flex items-center justify-center cursor-ew-resize group select-none"
+              onMouseDown={startResizing}
+              title="Drag to resize figure width"
+            >
+              <div className="w-1.5 h-16 bg-slate-300 rounded-full group-hover:bg-slate-500 transition-colors flex items-center justify-center shadow-sm">
+                 <GripVertical size={12} className="text-white opacity-0 group-hover:opacity-100" />
               </div>
             </div>
 
-            {/* Chart 3: CP -> HN */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xl font-bold text-black">c</span>
-                <h3 className="text-lg font-bold text-black">
-                  CP → HN
-                </h3>
-              </div>
-              <div className="h-[300px] w-full bg-white border border-gray-100 rounded-lg p-2">
-                <SemChart 
-                  data={dataCpHn} 
-                  bars={barCpHn} 
-                  xAxisFontSize={xAxisFontSize}
-                  yAxisFontSize={yAxisFontSize}
-                  yAxisTitleFontSize={yAxisTitleFontSize}
-                />
-              </div>
-            </div>
-
-            {/* Chart 4: HP -> HN */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xl font-bold text-black">d</span>
-                <h3 className="text-lg font-bold text-black">
-                   HP → HN
-                </h3>
-              </div>
-              <div className="h-[300px] w-full bg-white border border-gray-100 rounded-lg p-2">
-                <SemChart 
-                  data={dataHpHn} 
-                  bars={barHpHn} 
-                  xAxisFontSize={xAxisFontSize}
-                  yAxisFontSize={yAxisFontSize}
-                  yAxisTitleFontSize={yAxisTitleFontSize}
-                />
-              </div>
-            </div>
+            {/* Tooltip while dragging */}
+            {isResizing && (
+               <div className="absolute top-[-40px] right-0 bg-slate-800 text-white text-xs px-3 py-1.5 rounded shadow-lg">
+                 Width: {Math.round(containerWidth)}px
+               </div>
+            )}
 
           </div>
         </div>
@@ -411,7 +525,7 @@ const App: React.FC = () => {
            <div className="flex items-center gap-2 mb-6">
               <FileText className="w-5 h-5 text-slate-600" />
               <h3 className="text-lg font-bold text-gray-800" style={{ fontFamily: '"Times New Roman", Times, serif' }}>
-                Table 1: Standardized Direct Path Coefficients (Preview)
+                Table 1: Standardized Direct Path Coefficients
               </h3>
             </div>
             

@@ -6,72 +6,85 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   ReferenceLine,
+  Cell
 } from 'recharts';
-import { ChartDataPoint } from '../types';
-
-export interface BarConfig {
-  key: string;
-  name: string;
-  color: string;
-}
 
 interface SemChartProps {
-  data: ChartDataPoint[];
-  bars: BarConfig[];
+  data: { name: string; value: number }[];
   xAxisFontSize: number;
   yAxisFontSize: number;
   yAxisTitleFontSize: number;
+  domain: [number, number];
+  ticks: number[];
 }
 
 const SemChart: React.FC<SemChartProps> = ({ 
   data, 
-  bars, 
   xAxisFontSize, 
   yAxisFontSize, 
-  yAxisTitleFontSize 
+  yAxisTitleFontSize,
+  domain,
+  ticks
 }) => {
   const fontStyle = { fontFamily: '"Times New Roman", Times, serif' };
+  
+  // Nature Publishing Group colors
+  const colorPositive = '#3C5488'; // NPG Dark Blue
+  const colorNegative = '#E64B35'; // NPG Red
 
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart
+        layout="vertical"
         data={data}
         margin={{
-          top: 20,
-          right: 20,
-          left: 20, // Increased left margin for larger Y-axis titles
-          bottom: 20,
+          top: 5,
+          right: 30, // Reduced right margin since labels are gone
+          left: 10, 
+          bottom: 5,
         }}
+        barSize={40} // Bolder bars
       >
         <CartesianGrid 
           strokeDasharray="3 3" 
-          vertical={false} 
-          stroke="#e0e0e0" 
+          horizontal={false} 
+          vertical={true}
+          stroke="#d1d5db" 
         />
-        <ReferenceLine y={0} stroke="#333" strokeWidth={1} />
+        
+        {/* The Zero Line */}
+        <ReferenceLine x={0} stroke="#000" strokeWidth={1.5} />
         
         <XAxis 
-          dataKey="year" 
-          tick={{ ...fontStyle, fill: '#000', fontSize: xAxisFontSize }}
-          tickLine={{ stroke: '#000' }}
-          axisLine={{ stroke: '#000' }}
-          dy={5}
-        />
-        <YAxis 
-          tick={{ ...fontStyle, fill: '#000', fontSize: yAxisFontSize }}
-          tickLine={{ stroke: '#000' }}
-          axisLine={{ stroke: '#000' }}
-          label={{ 
-            value: 'Std. Coefficient', 
-            angle: -90, 
-            position: 'insideLeft',
-            style: { ...fontStyle, fill: '#000', fontSize: yAxisTitleFontSize, fontWeight: 'normal' },
-            offset: 0,
-            dx: -10 // Slight adjustment to keep it from overlapping ticks
+          type="number" 
+          domain={domain}
+          ticks={ticks}
+          tick={{ 
+            ...fontStyle, 
+            fill: '#000', 
+            fontSize: xAxisFontSize, 
+            fontWeight: 'bold' 
           }}
+          tickLine={{ stroke: '#000', strokeWidth: 1.5 }}
+          axisLine={{ stroke: '#000', strokeWidth: 1.5 }}
+        />
+        
+        <YAxis 
+          type="category" 
+          dataKey="name" 
+          width={150} 
+          tick={{ 
+            ...fontStyle, 
+            fill: '#000', 
+            fontSize: yAxisFontSize, 
+            fontWeight: 'bold',
+            textAnchor: 'end',
+            dx: -10 
+          }}
+          tickLine={{ stroke: '#000', strokeWidth: 1.5 }}
+          axisLine={{ stroke: '#000', strokeWidth: 1.5 }}
         />
         
         <Tooltip
@@ -81,28 +94,20 @@ const SemChart: React.FC<SemChartProps> = ({
             borderRadius: '4px', 
             border: '1px solid #ccc',
             fontSize: '12px',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)' 
           }}
-          itemStyle={fontStyle}
-          labelStyle={fontStyle}
+          formatter={(value: number) => [value.toFixed(3), 'Coefficient']}
         />
         
-        <Legend 
-          wrapperStyle={{ paddingTop: '10px', ...fontStyle }} 
-          iconType="rect"
-          iconSize={14}
-        />
-        
-        {bars.map((bar) => (
-          <Bar
-            key={bar.key}
-            name={bar.name}
-            dataKey={bar.key}
-            fill={bar.color}
-            radius={[0, 0, 0, 0]} 
-            barSize={40} 
-          />
-        ))}
+        <Bar dataKey="value" radius={[0, 3, 3, 0]}>
+          {data.map((entry, index) => (
+            <Cell 
+              key={`cell-${index}`} 
+              fill={entry.value >= 0 ? colorPositive : colorNegative} 
+              stroke={entry.value >= 0 ? '#2c3e50' : '#c0392b'}
+              strokeWidth={1}
+            />
+          ))}
+        </Bar>
       </BarChart>
     </ResponsiveContainer>
   );
